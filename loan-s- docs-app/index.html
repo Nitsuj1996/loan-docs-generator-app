@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dynamic Loan Documents</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 10px; line-height: 1.0; }
+  label { display: inline-block; width: 200px; margin-top: 10px; }
+  input, select { width: 250px; margin-bottom: 10px; }
+  button { margin-top: 10px; padding: 5px 10px; }
+  .sectionTitle { font-weight: bold; font-size: 12pt; text-align: center; margin-bottom: 10px; }
+  .folioContainer {
+    width: 612px;  
+    height: 936px; 
+    padding: 15px;
+    border: 1px solid #000;
+    box-sizing: border-box;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;   
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    margin: 0 auto 20px auto;
+    line-height: 1.0;
+  }
+  .boldText { font-weight: bold; }
+
+  @media print {
+    body * { visibility: hidden; }
+    #printContainer * { visibility: visible; }
+  }
+</style>
+</head>
+<body>
+
+<h2>Dynamic Loan Documents</h2>
+
+<div id="inputSection">
+  <label>Document Type:</label>
+  <select id="docType">
+    <option value="note">Promissory Note + Amortization</option>
+    <option value="demand">Demand Letter</option>
+  </select><br>
+
+  <label>Borrower Name:</label>
+  <input type="text" id="borrower" value="Atty. Marian Kanna Motoomull Idulsa"><br>
+  <label>Lender Name:</label>
+  <input type="text" id="lender" value="Cyprus Luck Dominic Rodriguez"><br>
+
+  <!-- Promissory Note Inputs -->
+  <div id="noteInputs">
+    <label>Principal Amount (₱):</label>
+    <input type="number" id="principal" value="200000"><br>
+    <label>Term (months):</label>
+    <input type="number" id="term" value="6"><br>
+    <label>Interest Rate (% monthly flat):</label>
+    <input type="number" id="interestRate" value="3"><br>
+  </div>
+
+  <!-- Demand Letter Inputs -->
+  <div id="demandInputs" style="display:none;">
+    <label>Outstanding Balance (₱):</label>
+    <input type="number" id="balance" value="210000"><br>
+    <label>Number of Days to Comply:</label>
+    <input type="number" id="days" value="7"><br>
+    <label>Date of Default:</label>
+    <input type="date" id="defaultDate"><br>
+  </div>
+
+  <button onclick="generateDocument()">Generate Document</button>
+  <button onclick="downloadPDF()">Download PDF</button>
+  <button onclick="printDocument()">Print</button>
+</div>
+
+<div id="printContainer">
+  <!-- Promissory Note -->
+  <div class="folioContainer" id="promissoryContainer">
+    <div class="sectionTitle">PROMISSORY NOTE</div>
+    <div id="promissoryNote"></div>
+  </div>
+
+  <div class="folioContainer" id="amortizationContainer">
+    <div class="sectionTitle">AMORTIZATION TABLE</div>
+    <div id="amortizationTable" style="font-family: monospace;"></div>
+  </div>
+
+  <!-- Demand Letter -->
+  <div class="folioContainer" id="letterContainer">
+    <div class="sectionTitle">DEMAND LETTER</div>
+    <div id="demandLetter"></div>
+  </div>
+</div>
+
+<script>
+document.getElementById('defaultDate').valueAsDate = new Date();
+
+// Toggle inputs based on document type
+document.getElementById('docType').addEventListener('change', function() {
+  const type = this.value;
+  document.getElementById('noteInputs').style.display = (type === 'note') ? '' : 'none';
+  document.getElementById('demandInputs').style.display = (type === 'demand') ? '' : 'none';
+});
+
+// Currency formatter
+function formatCurrency(amount) {
+  return "₱" + parseFloat(amount).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+// --- Promissory Note & Amortization ---
+function generateAmortizationTable(borrower, principal, term, interestRate) {
+  const serviceFee = principal * 0.01;
+  const netProceeds = principal - serviceFee;
+  const monthlyInterest = principal * (interestRate / 100);
+  const monthlyPayment = (principal + (monthlyInterest * term)) / term;
+
+  let table = `Borrower: ${borrower}\n\n`; 
+  table += `Summary of Borrowed Amount\n`;
+  table += `Principal: ${formatCurrency(principal)}\n`;
+  table += `Interest Rate: ${interestRate}% per month\n`;
+  table += `Term: ${term} months\n`;
+  table += `Monthly Payment: ${formatCurrency(monthlyPayment)}\n`;
+  table += `Net Proceeds (after 1% service fee): ${formatCurrency(netProceeds)}\n\n`;
+  table += "Month | Principal | Interest | Total Payment | Balance\n";
+  
+  let balance = principal;
+  for (let i = 1; i <= term; i++) {
+    const interest = principal * (interestRate / 100);
+    const principalPayment = monthlyPayment - interest;
+    balance -= principalPayment;
+    if (balance < 0) balance = 0;
+    table += `${i} | ${formatCurrency(principalPayment)} | ${formatCurrency(interest)} | ${formatCurrency(monthlyPayment)} | ${formatCurrency(balance)}\n`;
+  }
+  return table;
+}
+
+function generateNote() {
+  const borrower = document.getElementById('borrower').value;
+  const lender = document.getElementById('lender').value;
+  const principal = parseFloat(document.getElementById('principal').value);
+  const term = parseInt(document.getElementById('term').value);
+  const interestRate = parseFloat(document.getElementById('interestRate').value);
+
+  const noteContent = `
+Date: _____________________
+
+FOR VALUE RECEIVED, the undersigned Borrower, ${borrower}, promises to pay to the order of Lender, ${lender}, the principal sum of ${formatCurrency(principal)}, together with interest, penalties, and other amounts as set forth below, under the following terms and conditions:
+
+A. Principal and Interest
+a. Principal Amount: ${formatCurrency(principal)}
+b. Interest Rate: ${interestRate}% per month, computed on a flat rate monthly basis.
+c. Term: ${term} months, commencing upon the release of the Net Proceeds to the Borrower.
+
+B. Repayment Schedule
+The Borrower shall pay the Lender in equal monthly installments of principal and interest, due on the same calendar day of each month, starting on the month after commencement and continuing for ${term} consecutive months.
+
+C. Late Payment and Penalty
+a. Any unpaid monthly installment shall incur a penalty of 3% of the unpaid monthly amount, computed monthly from the due date until paid.
+b. In the event that the Borrower fails to pay three (3) consecutive monthly installments, the entire unpaid balance of principal, interest, and penalties shall become immediately due and payable at the option of the Lender.
+
+D.Enforcement and Collection
+a. The Borrower expressly agrees that, upon default as described in Clause 3(b), the Lender may initiate collection or legal action to recover the entire unpaid balance, including accrued interest, penalties, attorney’s fees, and other costs of collection.
+b. The Lender may exercise all legal remedies available under the laws of the Republic of the Philippines for the enforcement of this Promissory Note.
+
+IN WITNESS WHEREOF, the parties have executed this Promissory Note on the date first above written.
+
+Borrower:
+_____________________________
+${borrower}
+Date: ___________
+
+Lender:
+_____________________________
+${lender}
+Date: ___________
+
+Signed in the presence of:
+_____________________________
+Witness 
+
+  `;
+  const noteHtml = noteContent
+    .replace(new RegExp(`\\b${borrower}\\b`, 'g'), `<span class="boldText">${borrower}</span>`)
+    .replace(new RegExp(`\\b${lender}\\b`, 'g'), `<span class="boldText">${lender}</span>`)
+    .replace(new RegExp(formatCurrency(principal), 'g'), `<span class="boldText">${formatCurrency(principal)}</span>`);
+
+  document.getElementById('promissoryNote').innerHTML = noteHtml;
+
+  const amortizationContent = generateAmortizationTable(borrower, principal, term, interestRate);
+  const lines = amortizationContent.split('\n');
+  const amortHtml = '<span class="boldText">' + lines.slice(0,6).join('<br>') + '</span><br>' + lines.slice(6).join('<br>');
+  document.getElementById('amortizationTable').innerHTML = amortHtml;
+}
+
+// --- Demand Letter ---
+function generateLetter() {
+  const borrower = document.getElementById('borrower').value;
+  const lender = document.getElementById('lender').value;
+  const balance = parseFloat(document.getElementById('balance').value);
+  const days = parseInt(document.getElementById('days').value);
+  const defaultDateInput = document.getElementById('defaultDate').value;
+  const defaultDate = defaultDateInput ? new Date(defaultDateInput).toLocaleDateString() : new Date().toLocaleDateString();
+
+  const letterContent = `
+Date: ${defaultDate}
+
+Dear ${borrower},
+
+This Demand Letter serves as formal notice that you are in default of your repayment obligations under the Promissory Note executed between you and ${lender}. As of ${defaultDate}, your outstanding balance due amounts to ${formatCurrency(balance)}.
+
+In accordance with the terms of the Promissory Note, you are hereby required to settle the above-mentioned outstanding balance in full within ${days} calendar days from receipt of this notice.
+
+Failure to comply with this demand within the specified period shall compel ${lender} to initiate legal proceedings to recover the full amount due, together with accrued interest, penalties, and legal costs, without further notice.
+
+This Demand Letter is issued without prejudice to any of ${lender}'s rights and remedies under the law and the Promissory Note.
+
+Sincerely,
+
+_____________________________
+${lender}
+Lender
+
+Acknowledgment of Receipt:
+
+_____________________________
+${borrower}
+Borrower
+  `;
+
+  const letterHtml = letterContent
+    .replace(new RegExp(`\\b${borrower}\\b`, 'g'), `<span class="boldText">${borrower}</span>`)
+    .replace(new RegExp(`\\b${lender}\\b`, 'g'), `<span class="boldText">${lender}</span>`)
+    .replace(new RegExp(formatCurrency(balance), 'g'), `<span class="boldText">${formatCurrency(balance)}</span>`);
+
+  document.getElementById('demandLetter').innerHTML = letterHtml;
+}
+
+// --- Generate Document ---
+function generateDocument() {
+  const docType = document.getElementById('docType').value;
+  if(docType === 'note'){
+    generateNote();
+    document.getElementById('promissoryContainer').style.display = '';
+    document.getElementById('amortizationContainer').style.display = '';
+    document.getElementById('letterContainer').style.display = 'none';
+  } else {
+    generateLetter();
+    document.getElementById('promissoryContainer').style.display = 'none';
+    document.getElementById('amortizationContainer').style.display = 'none';
+    document.getElementById('letterContainer').style.display = '';
+  }
+}
+
+// --- Download PDF ---
+async function downloadPDF() {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: "pt", format: [612, 936] });
+  const margin = 15;
+  const pageWidth = pdf.internal.pageSize.getWidth() - 2 * margin;
+
+  const containers = [];
+  const docType = document.getElementById('docType').value;
+  if(docType === 'note'){
+    containers.push(document.getElementById('promissoryContainer').cloneNode(true));
+    containers.push(document.getElementById('amortizationContainer').cloneNode(true));
+  } else {
+    containers.push(document.getElementById('letterContainer').cloneNode(true));
+  }
+
+  const hiddenDiv = document.createElement('div');
+  hiddenDiv.style.position = 'absolute';
+  hiddenDiv.style.left = '-9999px';
+  document.body.appendChild(hiddenDiv);
+
+  for(let i=0;i<containers.length;i++){
+    hiddenDiv.appendChild(containers[i]);
+    const canvas = await html2canvas(containers[i], { scale: 2 });
+    const data = canvas.toDataURL('image/png');
+    const props = pdf.getImageProperties(data);
+    const height = (props.height * pageWidth)/props.width;
+    if(i>0) pdf.addPage();
+    pdf.addImage(data,'PNG',margin,margin,pageWidth,height);
+  }
+
+  document.body.removeChild(hiddenDiv);
+  pdf.save(docType === 'note' ? "Promissory_Note_with_Amortization.pdf" : "Demand_Letter.pdf");
+}
+
+// --- Print Document ---
+function printDocument() {
+  const docType = document.getElementById('docType').value;
+  if(docType === 'note'){
+    document.getElementById('promissoryContainer').style.display = '';
+    document.getElementById('amortizationContainer').style.display = '';
+    document.getElementById('letterContainer').style.display = 'none';
+  } else {
+    document.getElementById('promissoryContainer').style.display = 'none';
+    document.getElementById('amortizationContainer').style.display = 'none';
+    document.getElementById('letterContainer').style.display = '';
+  }
+  window.print();
+}
+</script>
+
+</body>
+</html>
